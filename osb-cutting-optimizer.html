@@ -1,0 +1,900 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OSB Sheet Cutting Optimizer - MaxRects Algorithm</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            padding: 30px;
+        }
+        h1 { color: #2d3748; margin-bottom: 10px; font-size: 28px; }
+        .subtitle { color: #718096; margin-bottom: 20px; font-size: 14px; }
+        .input-section {
+            background: #f7fafc;
+            padding: 20px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+            border: 2px solid #e2e8f0;
+        }
+        .input-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+        .input-group { display: flex; flex-direction: column; }
+        label { font-weight: 600; color: #4a5568; margin-bottom: 5px; font-size: 13px; }
+        input {
+            padding: 10px;
+            border: 2px solid #cbd5e0;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+        input:focus { outline: none; border-color: #667eea; }
+        button {
+            padding: 12px 30px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-right: 10px;
+        }
+        .btn-primary { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }
+        .btn-secondary { background: #e2e8f0; color: #4a5568; }
+        .results { margin-top: 20px; }
+        .summary {
+            background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+        }
+        .summary h2 { margin-bottom: 10px; }
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; }
+        .stat { background: rgba(255,255,255,0.2); padding: 10px; border-radius: 8px; text-align: center; }
+        .stat-value { font-size: 24px; font-weight: bold; }
+        .stat-label { font-size: 12px; opacity: 0.9; }
+        .warning { background: linear-gradient(135deg, #ed8936 0%, #dd6b20 100%); }
+        .layout-section { margin-top: 30px; }
+        .layout-title { font-size: 18px; font-weight: 600; color: #2d3748; margin-bottom: 15px; }
+        .target-area {
+            position: relative;
+            background: #f0f0f0;
+            border: 3px solid #333;
+            margin-bottom: 30px;
+            overflow: hidden;
+        }
+        .piece {
+            position: absolute;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            font-weight: bold;
+            color: white;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+            border: 1px solid rgba(0,0,0,0.3);
+        }
+        .sheet-diagram {
+            display: inline-block;
+            position: relative;
+            margin: 10px;
+            background: #f5f5f5;
+            border: 2px solid #333;
+        }
+        .cut-piece {
+            position: absolute;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            font-weight: bold;
+            color: white;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+            border: 1px solid rgba(0,0,0,0.3);
+        }
+        .waste-piece {
+            position: absolute;
+            background: repeating-linear-gradient(45deg, #ddd, #ddd 5px, #ccc 5px, #ccc 10px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 9px;
+            color: #666;
+        }
+        .instructions {
+            background: #f7fafc;
+            padding: 20px;
+            border-radius: 12px;
+            margin-top: 20px;
+        }
+        .instruction-step {
+            margin-bottom: 15px;
+            padding: 10px;
+            background: white;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+        }
+        .rotated-badge {
+            background: #e53e3e;
+            color: white;
+            font-size: 8px;
+            padding: 2px 4px;
+            border-radius: 3px;
+            margin-left: 5px;
+        }
+        .sheet-colors { display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap; }
+        .color-key { display: flex; align-items: center; gap: 5px; font-size: 12px; }
+        .color-swatch { width: 20px; height: 20px; border-radius: 4px; border: 1px solid #333; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🪵 OSB Sheet Cutting Optimizer</h1>
+        <p class="subtitle">MaxRects Algorithm with Rotation Support - finds optimal cuts to minimize waste</p>
+        
+        <div class="input-section">
+            <div class="input-grid">
+                <div class="input-group">
+                    <label>Sheet Width (cm)</label>
+                    <input type="number" id="sheetWidth" value="120">
+                </div>
+                <div class="input-group">
+                    <label>Sheet Length (cm)</label>
+                    <input type="number" id="sheetLength" value="240">
+                </div>
+                <div class="input-group">
+                    <label>Number of Sheets</label>
+                    <input type="number" id="numSheets" value="3">
+                </div>
+                <div class="input-group">
+                    <label>Target Width (cm)</label>
+                    <input type="number" id="targetWidth" value="530">
+                </div>
+                <div class="input-group">
+                    <label>Target Length (cm)</label>
+                    <input type="number" id="targetLength" value="155">
+                </div>
+                <div class="input-group">
+                    <label>Kerf / Blade Width (mm)</label>
+                    <input type="number" id="kerf" value="3" step="0.5" min="0">
+                </div>
+            </div>
+            <button class="btn-primary" onclick="optimize()">🔧 Optimize Cuts</button>
+            <button class="btn-secondary" onclick="resetForm()">Reset</button>
+        </div>
+        
+        <div id="results" class="results" style="display: none;"></div>
+    </div>
+
+    <script>
+        // Sheet colors for visualization
+        const SHEET_COLORS = [
+            '#e53e3e', '#dd6b20', '#d69e2e', '#38a169', '#3182ce', 
+            '#805ad5', '#d53f8c', '#00b5d8', '#319795', '#718096'
+        ];
+
+        // MaxRects Bin Packer with Rotation
+        class MaxRectsBinPack {
+            constructor(width, height, allowRotation = true, kerf = 0) {
+                this.binWidth = width;
+                this.binHeight = height;
+                this.allowRotation = allowRotation;
+                this.kerf = kerf; // Kerf in cm
+                this.usedRectangles = [];
+                this.freeRectangles = [{ x: 0, y: 0, width: width, height: height }];
+            }
+
+            // Calculate effective piece size including kerf (only for internal cuts)
+            getEffectiveSize(width, height, x, y) {
+                // Add kerf to right edge if piece doesn't reach sheet edge
+                const effWidth = (x + width < this.binWidth) ? width + this.kerf : width;
+                // Add kerf to bottom edge if piece doesn't reach sheet edge  
+                const effHeight = (y + height < this.binHeight) ? height + this.kerf : height;
+                return { effWidth, effHeight };
+            }
+
+            insert(width, height, id) {
+                // Find the best position using Best Short Side Fit
+                let bestNode = { x: 0, y: 0, width: 0, height: 0 };
+                let bestShortSideFit = Infinity;
+                let bestLongSideFit = Infinity;
+                let bestRotated = false;
+
+                for (const freeRect of this.freeRectangles) {
+                    if (!freeRect) continue;
+                    
+                    // Calculate effective dimensions with kerf
+                    // Kerf is added if the piece won't be at the sheet edge
+                    const needsRightKerf = (freeRect.x + width < this.binWidth);
+                    const needsBottomKerf = (freeRect.y + height < this.binHeight);
+                    const effWidth = width + (needsRightKerf ? this.kerf : 0);
+                    const effHeight = height + (needsBottomKerf ? this.kerf : 0);
+                    
+                    // Try without rotation
+                    if (effWidth <= freeRect.width && effHeight <= freeRect.height) {
+                        const leftoverHoriz = Math.abs(freeRect.width - effWidth);
+                        const leftoverVert = Math.abs(freeRect.height - effHeight);
+                        const shortSideFit = Math.min(leftoverHoriz, leftoverVert);
+                        const longSideFit = Math.max(leftoverHoriz, leftoverVert);
+
+                        if (shortSideFit < bestShortSideFit || 
+                            (shortSideFit === bestShortSideFit && longSideFit < bestLongSideFit)) {
+                            bestNode = { 
+                                x: freeRect.x, 
+                                y: freeRect.y, 
+                                width: effWidth, 
+                                height: effHeight,
+                                actualWidth: width,
+                                actualHeight: height
+                            };
+                            bestShortSideFit = shortSideFit;
+                            bestLongSideFit = longSideFit;
+                            bestRotated = false;
+                        }
+                    }
+
+                    // Try with rotation
+                    if (this.allowRotation) {
+                        const needsRightKerfRot = (freeRect.x + height < this.binWidth);
+                        const needsBottomKerfRot = (freeRect.y + width < this.binHeight);
+                        const effWidthRot = height + (needsRightKerfRot ? this.kerf : 0);
+                        const effHeightRot = width + (needsBottomKerfRot ? this.kerf : 0);
+                        
+                        if (effWidthRot <= freeRect.width && effHeightRot <= freeRect.height) {
+                            const leftoverHoriz = Math.abs(freeRect.width - effWidthRot);
+                            const leftoverVert = Math.abs(freeRect.height - effHeightRot);
+                            const shortSideFit = Math.min(leftoverHoriz, leftoverVert);
+                            const longSideFit = Math.max(leftoverHoriz, leftoverVert);
+
+                            if (shortSideFit < bestShortSideFit || 
+                                (shortSideFit === bestShortSideFit && longSideFit < bestLongSideFit)) {
+                                bestNode = { 
+                                    x: freeRect.x, 
+                                    y: freeRect.y, 
+                                    width: effWidthRot, 
+                                    height: effHeightRot,
+                                    actualWidth: height,
+                                    actualHeight: width
+                                };
+                                bestShortSideFit = shortSideFit;
+                                bestLongSideFit = longSideFit;
+                                bestRotated = true;
+                            }
+                        }
+                    }
+                }
+
+                if (bestNode.width === 0) {
+                    return null; // Couldn't fit
+                }
+
+                // Place the rectangle (using effective size with kerf for space tracking)
+                this.placeRect(bestNode);
+                
+                return {
+                    x: bestNode.x,
+                    y: bestNode.y,
+                    width: bestNode.width,  // Effective width (with kerf)
+                    height: bestNode.height, // Effective height (with kerf)
+                    actualWidth: bestNode.actualWidth || bestNode.width,   // Actual piece width
+                    actualHeight: bestNode.actualHeight || bestNode.height, // Actual piece height
+                    rotated: bestRotated,
+                    originalWidth: width,
+                    originalHeight: height,
+                    id: id
+                };
+            }
+
+            placeRect(node) {
+                // Split free rectangles
+                let i = 0;
+                while (i < this.freeRectangles.length) {
+                    if (this.freeRectangles[i] && this.splitFreeNode(this.freeRectangles[i], node)) {
+                        this.freeRectangles.splice(i, 1);
+                    } else {
+                        i++;
+                    }
+                }
+
+                this.pruneFreeList();
+                this.usedRectangles.push({...node});
+            }
+
+            splitFreeNode(freeNode, usedNode) {
+                if (!freeNode || !usedNode) return false;
+                
+                // Test if they even intersect
+                if (usedNode.x >= freeNode.x + freeNode.width || 
+                    usedNode.x + usedNode.width <= freeNode.x ||
+                    usedNode.y >= freeNode.y + freeNode.height || 
+                    usedNode.y + usedNode.height <= freeNode.y) {
+                    return false;
+                }
+
+                // Create new free rectangles
+                // New node at the top
+                if (usedNode.y > freeNode.y && usedNode.y < freeNode.y + freeNode.height) {
+                    const newHeight = usedNode.y - freeNode.y;
+                    if (newHeight > 0) {
+                        this.freeRectangles.push({
+                            x: freeNode.x,
+                            y: freeNode.y,
+                            width: freeNode.width,
+                            height: newHeight
+                        });
+                    }
+                }
+                // New node at the bottom
+                if (usedNode.y + usedNode.height < freeNode.y + freeNode.height) {
+                    const newHeight = freeNode.y + freeNode.height - (usedNode.y + usedNode.height);
+                    if (newHeight > 0) {
+                        this.freeRectangles.push({
+                            x: freeNode.x,
+                            y: usedNode.y + usedNode.height,
+                            width: freeNode.width,
+                            height: newHeight
+                        });
+                    }
+                }
+                
+                // New node to the left
+                if (usedNode.x > freeNode.x && usedNode.x < freeNode.x + freeNode.width) {
+                    const newWidth = usedNode.x - freeNode.x;
+                    if (newWidth > 0) {
+                        this.freeRectangles.push({
+                            x: freeNode.x,
+                            y: freeNode.y,
+                            width: newWidth,
+                            height: freeNode.height
+                        });
+                    }
+                }
+                // New node to the right
+                if (usedNode.x + usedNode.width < freeNode.x + freeNode.width) {
+                    const newWidth = freeNode.x + freeNode.width - (usedNode.x + usedNode.width);
+                    if (newWidth > 0) {
+                        this.freeRectangles.push({
+                            x: usedNode.x + usedNode.width,
+                            y: freeNode.y,
+                            width: newWidth,
+                            height: freeNode.height
+                        });
+                    }
+                }
+
+                return true;
+            }
+
+            pruneFreeList() {
+                // Remove rectangles that are inside others
+                for (let i = 0; i < this.freeRectangles.length; i++) {
+                    if (!this.freeRectangles[i]) continue;
+                    for (let j = i + 1; j < this.freeRectangles.length; j++) {
+                        if (!this.freeRectangles[j]) continue;
+                        if (this.isContainedIn(this.freeRectangles[i], this.freeRectangles[j])) {
+                            this.freeRectangles.splice(i, 1);
+                            i--;
+                            break;
+                        }
+                        if (this.isContainedIn(this.freeRectangles[j], this.freeRectangles[i])) {
+                            this.freeRectangles.splice(j, 1);
+                            j--;
+                        }
+                    }
+                }
+                // Remove any null/undefined entries
+                this.freeRectangles = this.freeRectangles.filter(r => r != null);
+            }
+
+            isContainedIn(a, b) {
+                if (!a || !b) return false;
+                return a.x >= b.x && a.y >= b.y &&
+                       a.x + a.width <= b.x + b.width &&
+                       a.y + a.height <= b.y + b.height;
+            }
+
+            getOccupancy() {
+                let usedArea = 0;
+                for (const rect of this.usedRectangles) {
+                    usedArea += rect.width * rect.height;
+                }
+                return usedArea / (this.binWidth * this.binHeight);
+            }
+        }
+
+        // Generate required pieces to cover target area using guillotine cuts
+        function generateCoveringPieces(targetW, targetL, sheetW, sheetL) {
+            const pieces = [];
+            let pieceId = 1;
+            
+            // Try different strip strategies
+            const strategies = [];
+            
+            // Strategy 1: Horizontal strips (cut sheets to targetL height, use full/partial widths)
+            strategies.push(generateHorizontalStrips(targetW, targetL, sheetW, sheetL));
+            
+            // Strategy 2: Vertical strips (cut sheets to targetW width or less)
+            strategies.push(generateVerticalStrips(targetW, targetL, sheetW, sheetL));
+            
+            // Strategy 3: Mixed - use largest pieces possible
+            strategies.push(generateMixedPieces(targetW, targetL, sheetW, sheetL));
+            
+            // Return the strategy that needs fewest pieces
+            strategies.sort((a, b) => {
+                // Prefer strategies that achieve full coverage
+                const aCoverage = a.reduce((sum, p) => sum + p.width * p.height, 0);
+                const bCoverage = b.reduce((sum, p) => sum + p.width * p.height, 0);
+                if (aCoverage >= targetW * targetL && bCoverage < targetW * targetL) return -1;
+                if (bCoverage >= targetW * targetL && aCoverage < targetW * targetL) return 1;
+                return a.length - b.length;
+            });
+            
+            return strategies[0];
+        }
+
+        function generateHorizontalStrips(targetW, targetL, sheetW, sheetL) {
+            const pieces = [];
+            let currentX = 0;
+            let pieceId = 1;
+            
+            while (currentX < targetW) {
+                const remainingW = targetW - currentX;
+                
+                // Determine piece width - can be up to sheetL (if rotated) or sheetW
+                let pieceW, pieceH;
+                
+                if (remainingW >= sheetL) {
+                    // Use rotated full sheet length as width
+                    pieceW = sheetL;
+                    pieceH = Math.min(targetL, sheetW);
+                } else if (remainingW >= sheetW) {
+                    // Use full sheet width
+                    pieceW = sheetW;
+                    pieceH = Math.min(targetL, sheetL);
+                } else {
+                    // Cut to remaining width
+                    pieceW = remainingW;
+                    pieceH = targetL;
+                }
+                
+                pieces.push({
+                    id: pieceId++,
+                    width: pieceW,
+                    height: pieceH,
+                    targetX: currentX,
+                    targetY: 0
+                });
+                
+                currentX += pieceW;
+            }
+            
+            return pieces;
+        }
+
+        function generateVerticalStrips(targetW, targetL, sheetW, sheetL) {
+            const pieces = [];
+            let currentY = 0;
+            let pieceId = 1;
+            
+            while (currentY < targetL) {
+                let currentX = 0;
+                const remainingH = targetL - currentY;
+                
+                while (currentX < targetW) {
+                    const remainingW = targetW - currentX;
+                    
+                    let pieceW = Math.min(remainingW, sheetW);
+                    let pieceH = Math.min(remainingH, sheetL);
+                    
+                    pieces.push({
+                        id: pieceId++,
+                        width: pieceW,
+                        height: pieceH,
+                        targetX: currentX,
+                        targetY: currentY
+                    });
+                    
+                    currentX += pieceW;
+                }
+                
+                currentY += Math.min(remainingH, sheetL);
+            }
+            
+            return pieces;
+        }
+
+        function generateMixedPieces(targetW, targetL, sheetW, sheetL) {
+            const pieces = [];
+            let pieceId = 1;
+            
+            // For 530x155 from 120x240 sheets:
+            // Option: 3 pieces of 120x155 (rotated to 155x120 on sheet) = 360cm
+            // Then need 170x155 more, which can come from remaining sheet space
+            
+            // First, fill with the best fit pieces
+            let currentX = 0;
+            
+            // Use 155 height strips (cut from 240 length, waste 85)
+            // Each 120 wide
+            while (currentX + sheetW <= targetW) {
+                pieces.push({
+                    id: pieceId++,
+                    width: sheetW,
+                    height: targetL,
+                    targetX: currentX,
+                    targetY: 0
+                });
+                currentX += sheetW;
+            }
+            
+            // Remaining width
+            const remainingW = targetW - currentX;
+            if (remainingW > 0) {
+                // This needs to be filled - might need multiple pieces
+                // The 85cm waste from each sheet could provide this
+                // Each sheet has 85cm of "waste" when we cut 155 from 240
+                // We can cut pieces from this waste
+                
+                // If remainingW <= sheetL - targetL (the waste height), we can get it from waste
+                const wasteHeight = sheetL - targetL; // 240 - 155 = 85
+                
+                if (remainingW <= sheetW) {
+                    // Can cut remainingW x targetL from a sheet
+                    pieces.push({
+                        id: pieceId++,
+                        width: remainingW,
+                        height: targetL,
+                        targetX: currentX,
+                        targetY: 0
+                    });
+                }
+            }
+            
+            return pieces;
+        }
+
+        // Main optimization function
+        function optimize() {
+            try {
+                const sheetW = parseFloat(document.getElementById('sheetWidth').value);
+                const sheetL = parseFloat(document.getElementById('sheetLength').value);
+                const numSheets = parseInt(document.getElementById('numSheets').value);
+                const targetW = parseFloat(document.getElementById('targetWidth').value);
+                const targetL = parseFloat(document.getElementById('targetLength').value);
+                const kerfMm = parseFloat(document.getElementById('kerf').value) || 0;
+                const kerf = kerfMm / 10; // Convert mm to cm
+                
+                const targetArea = targetW * targetL;
+                const totalMaterialArea = sheetW * sheetL * numSheets;
+                
+                // Try multiple packing strategies and pick the best
+                const results = [];
+                
+                // Strategy A: Pack horizontally-oriented pieces
+                try { results.push(tryPacking(sheetW, sheetL, numSheets, targetW, targetL, 'horizontal', kerf)); } catch(e) { console.log('horizontal failed', e); }
+                
+                // Strategy B: Pack vertically-oriented pieces  
+                try { results.push(tryPacking(sheetW, sheetL, numSheets, targetW, targetL, 'vertical', kerf)); } catch(e) { console.log('vertical failed', e); }
+                
+                // Strategy C: Try with rotated sheets
+                try { results.push(tryPacking(sheetL, sheetW, numSheets, targetW, targetL, 'rotated', kerf)); } catch(e) { console.log('rotated failed', e); }
+                
+                // Filter out any null/undefined results
+                const validResults = results.filter(r => r && r.coverage != null);
+                
+                if (validResults.length === 0) {
+                    document.getElementById('results').innerHTML = '<div class="summary warning"><h2>Could not find a valid packing solution</h2></div>';
+                    document.getElementById('results').style.display = 'block';
+                    return;
+                }
+                
+                // Pick best result (highest coverage, then lowest waste)
+                validResults.sort((a, b) => {
+                    if (Math.abs(a.coverage - b.coverage) > 0.1) return b.coverage - a.coverage;
+                    return a.waste - b.waste;
+                });
+            
+                displayResults(validResults[0], sheetW, sheetL, numSheets, targetW, targetL);
+            } catch (error) {
+                console.error('Optimization error:', error);
+                document.getElementById('results').innerHTML = '<div class="summary warning"><h2>Error: ' + error.message + '</h2></div>';
+                document.getElementById('results').style.display = 'block';
+            }
+        }
+
+        function tryPacking(sheetW, sheetL, numSheets, targetW, targetL, strategy, kerf = 0) {
+            // Create bins (sheets) with kerf parameter
+            const sheets = [];
+            for (let i = 0; i < numSheets; i++) {
+                sheets.push(new MaxRectsBinPack(sheetW, sheetL, true, kerf));
+            }
+            
+            // Generate pieces needed to cover target area
+            const pieces = [];
+            let pieceId = 1;
+            
+            // Create grid of pieces to cover the target
+            let y = 0;
+            while (y < targetL) {
+                let x = 0;
+                while (x < targetW) {
+                    const remainingW = targetW - x;
+                    const remainingH = targetL - y;
+                    
+                    // Determine optimal piece size
+                    let pieceW, pieceH;
+                    
+                    if (strategy === 'horizontal') {
+                        // Prefer wide pieces
+                        pieceW = Math.min(remainingW, sheetL);
+                        pieceH = Math.min(remainingH, sheetW);
+                    } else if (strategy === 'vertical') {
+                        // Prefer tall pieces
+                        pieceW = Math.min(remainingW, sheetW);
+                        pieceH = Math.min(remainingH, sheetL);
+                    } else {
+                        // Adaptive
+                        pieceW = Math.min(remainingW, sheetW);
+                        pieceH = Math.min(remainingH, sheetL);
+                    }
+                    
+                    pieces.push({
+                        id: pieceId++,
+                        width: pieceW,
+                        height: pieceH,
+                        targetX: x,
+                        targetY: y
+                    });
+                    
+                    x += pieceW;
+                }
+                y += (strategy === 'horizontal') ? Math.min(targetL - y, sheetW) : Math.min(targetL - y, sheetL);
+            }
+            
+            // Sort pieces by area (largest first) for better packing
+            pieces.sort((a, b) => (b.width * b.height) - (a.width * a.height));
+            
+            // Pack pieces into sheets
+            const placedPieces = [];
+            const unplacedPieces = [];
+            
+            for (const piece of pieces) {
+                let placed = false;
+                
+                for (let sheetIdx = 0; sheetIdx < sheets.length; sheetIdx++) {
+                    const result = sheets[sheetIdx].insert(piece.width, piece.height, piece.id);
+                    
+                    if (result) {
+                        placedPieces.push({
+                            ...piece,
+                            sheetIndex: sheetIdx,
+                            sheetX: result.x,
+                            sheetY: result.y,
+                            // Effective dimensions (including kerf for space on sheet)
+                            placedWidth: result.width,
+                            placedHeight: result.height,
+                            // Actual piece dimensions (what you cut)
+                            actualWidth: result.actualWidth,
+                            actualHeight: result.actualHeight,
+                            rotated: result.rotated,
+                            // Track if kerf was applied
+                            hasRightKerf: result.width > result.actualWidth,
+                            hasBottomKerf: result.height > result.actualHeight
+                        });
+                        placed = true;
+                        break;
+                    }
+                }
+                
+                if (!placed) {
+                    unplacedPieces.push(piece);
+                }
+            }
+            
+            // Calculate coverage and waste
+            const targetArea = targetW * targetL;
+            const placedArea = placedPieces.reduce((sum, p) => sum + p.width * p.height, 0);
+            const coverage = (placedArea / targetArea) * 100;
+            
+            const totalMaterialArea = sheetW * sheetL * numSheets;
+            const usedMaterialArea = sheets.reduce((sum, s) => 
+                sum + s.usedRectangles.reduce((a, r) => a + r.width * r.height, 0), 0);
+            const waste = ((totalMaterialArea - usedMaterialArea) / totalMaterialArea) * 100;
+            
+            return {
+                strategy,
+                kerf,
+                sheets: sheets.map((s, i) => ({
+                    index: i,
+                    usedRectangles: s.usedRectangles,
+                    freeRectangles: s.freeRectangles,
+                    occupancy: s.getOccupancy()
+                })),
+                placedPieces,
+                unplacedPieces,
+                coverage,
+                waste,
+                targetArea,
+                placedArea,
+                totalMaterialArea,
+                usedMaterialArea
+            };
+        }
+
+        function displayResults(result, sheetW, sheetL, numSheets, targetW, targetL) {
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.style.display = 'block';
+            
+            if (!result || !result.placedPieces) {
+                resultsDiv.innerHTML = '<div class="summary warning"><h2>No valid result to display</h2></div>';
+                return;
+            }
+            
+            const coverageClass = result.coverage >= 99 ? '' : 'warning';
+            const kerfMm = (result.kerf || 0) * 10; // Convert back to mm for display
+            
+            let html = `
+                <div class="summary ${coverageClass}">
+                    <h2>${result.coverage >= 99 ? '✅ Full Coverage Achieved!' : '⚠️ Partial Coverage'}</h2>
+                    <div class="stats-grid">
+                        <div class="stat">
+                            <div class="stat-value">${result.coverage.toFixed(1)}%</div>
+                            <div class="stat-label">Coverage</div>
+                        </div>
+                        <div class="stat">
+                            <div class="stat-value">${result.waste.toFixed(1)}%</div>
+                            <div class="stat-label">Material Waste</div>
+                        </div>
+                        <div class="stat">
+                            <div class="stat-value">${kerfMm.toFixed(1)}mm</div>
+                            <div class="stat-label">Kerf</div>
+                        </div>
+                        <div class="stat">
+                            <div class="stat-value">${result.placedPieces.length}</div>
+                            <div class="stat-label">Pieces Cut</div>
+                        </div>
+                        <div class="stat">
+                            <div class="stat-value">${new Set(result.placedPieces.map(p => p.sheetIndex)).size}</div>
+                            <div class="stat-label">Sheets Used</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            // Color key
+            html += `<div class="sheet-colors">`;
+            for (let i = 0; i < numSheets; i++) {
+                html += `<div class="color-key"><div class="color-swatch" style="background: ${SHEET_COLORS[i]}"></div> Sheet ${i + 1}</div>`;
+            }
+            html += `</div>`;
+            
+            // Target area visualization
+            const scale = Math.min(800 / targetW, 400 / targetL);
+            html += `
+                <div class="layout-section">
+                    <div class="layout-title">📐 Target Area Layout (${targetW} × ${targetL} cm)</div>
+                    <div class="target-area" style="width: ${targetW * scale}px; height: ${targetL * scale}px;">
+            `;
+            
+            for (const piece of result.placedPieces) {
+                const color = SHEET_COLORS[piece.sheetIndex % SHEET_COLORS.length];
+                html += `
+                    <div class="piece" style="
+                        left: ${piece.targetX * scale}px;
+                        top: ${piece.targetY * scale}px;
+                        width: ${piece.width * scale}px;
+                        height: ${piece.height * scale}px;
+                        background: ${color};
+                    " title="Sheet ${piece.sheetIndex + 1}: ${piece.width}×${piece.height}cm${piece.rotated ? ' (rotated)' : ''}">
+                        ${piece.width}×${piece.height}
+                        ${piece.rotated ? '<span class="rotated-badge">R</span>' : ''}
+                    </div>
+                `;
+            }
+            
+            html += `</div></div>`;
+            
+            // Sheet cutting diagrams
+            html += `<div class="layout-section"><div class="layout-title">✂️ Cutting Diagrams</div>`;
+            
+            const sheetScale = Math.min(300 / sheetW, 200 / sheetL);
+            
+            for (let i = 0; i < numSheets; i++) {
+                const sheetPieces = result.placedPieces.filter(p => p.sheetIndex === i);
+                
+                if (sheetPieces.length === 0) continue;
+                
+                html += `
+                    <div style="display: inline-block; margin: 10px; vertical-align: top;">
+                        <div style="font-weight: bold; margin-bottom: 5px;">Sheet ${i + 1} (${sheetW}×${sheetL}cm)</div>
+                        <div class="sheet-diagram" style="width: ${sheetW * sheetScale}px; height: ${sheetL * sheetScale}px;">
+                `;
+                
+                for (const piece of sheetPieces) {
+                    const color = SHEET_COLORS[i % SHEET_COLORS.length];
+                    const actualW = piece.actualWidth || piece.placedWidth;
+                    const actualH = piece.actualHeight || piece.placedHeight;
+                    const kerfInfo = (piece.hasRightKerf || piece.hasBottomKerf) ? ' +kerf' : '';
+                    html += `
+                        <div class="cut-piece" style="
+                            left: ${piece.sheetX * sheetScale}px;
+                            top: ${piece.sheetY * sheetScale}px;
+                            width: ${piece.placedWidth * sheetScale}px;
+                            height: ${piece.placedHeight * sheetScale}px;
+                            background: ${color};
+                        " title="Cut: ${actualW}×${actualH}cm${kerfInfo} for target position (${piece.targetX},${piece.targetY})">
+                            ${actualW}×${actualH}
+                            ${piece.rotated ? '<span class="rotated-badge">R</span>' : ''}
+                        </div>
+                    `;
+                }
+                
+                html += `</div></div>`;
+            }
+            
+            html += `</div>`;
+            
+            // Cutting instructions
+            html += `
+                <div class="instructions">
+                    <div class="layout-title">📋 Cutting Instructions</div>
+            `;
+            
+            for (let i = 0; i < numSheets; i++) {
+                const sheetPieces = result.placedPieces.filter(p => p.sheetIndex === i);
+                
+                if (sheetPieces.length === 0) continue;
+                
+                html += `<div class="instruction-step"><strong>Sheet ${i + 1}:</strong><ul>`;
+                
+                for (const piece of sheetPieces) {
+                    const actualW = piece.actualWidth || piece.placedWidth;
+                    const actualH = piece.actualHeight || piece.placedHeight;
+                    const kerfNote = (piece.hasRightKerf || piece.hasBottomKerf) 
+                        ? ` <span style="color: #718096; font-size: 11px;">(+${(result.kerf * 10).toFixed(1)}mm kerf${piece.hasRightKerf && piece.hasBottomKerf ? ' on right & bottom' : piece.hasRightKerf ? ' on right' : ' on bottom'})</span>` 
+                        : '';
+                    html += `<li>Cut <strong>${actualW}×${actualH}cm</strong>${kerfNote}`;
+                    if (piece.rotated) {
+                        html += ` <span class="rotated-badge">ROTATED</span> (original: ${piece.width}×${piece.height}cm)`;
+                    }
+                    html += ` → Place at position (${piece.targetX}, ${piece.targetY})cm on target</li>`;
+                }
+                
+                html += `</ul></div>`;
+            }
+            
+            html += `</div>`;
+            
+            resultsDiv.innerHTML = html;
+        }
+
+        function resetForm() {
+            document.getElementById('sheetWidth').value = 120;
+            document.getElementById('sheetLength').value = 240;
+            document.getElementById('numSheets').value = 3;
+            document.getElementById('targetWidth').value = 530;
+            document.getElementById('targetLength').value = 155;
+            document.getElementById('kerf').value = 3;
+            document.getElementById('results').style.display = 'none';
+        }
+
+        // Auto-calculate on load
+        window.onload = optimize;
+    </script>
+</body>
+</html>
